@@ -1,0 +1,733 @@
+openapi: "3.1.0"
+info:
+  title: IDaaS API
+  version: "0.1.0"
+  description: Identity-as-a-Service platform — Auth0 alternative written in Rust.
+
+servers:
+  - url: /api/v1
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+
+  schemas:
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+
+    TokenResponse:
+      type: object
+      required: [access_token, token_type]
+      properties:
+        access_token:
+          type: string
+        token_type:
+          type: string
+          enum: [Bearer]
+
+    Tenant:
+      type: object
+      required: [id, name, current_region, status, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        current_region:
+          type: string
+        status:
+          type: string
+          enum: [active, read_only, migrating]
+        updated_at:
+          type: string
+          format: date-time
+
+    User:
+      type: object
+      required: [id, tenant_id, connection_id, email, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenant_id:
+          type: string
+          format: uuid
+        connection_id:
+          type: string
+          format: uuid
+        organization_id:
+          type: string
+          format: uuid
+          nullable: true
+        email:
+          type: string
+          format: email
+        external_provider_id:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    ConnectionSummary:
+      type: object
+      required: [id, tenant_id, name, strategy, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenant_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        strategy:
+          type: string
+          enum: [database, oauth2, saml, oidc]
+        webhook_url:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+
+    Organization:
+      type: object
+      required: [id, tenant_id, name, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenant_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        display_name:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+
+paths:
+  /{tenant}/auth/database:
+    post:
+      operationId: dbLogin
+      summary: Authenticate with email and password
+      tags: [auth]
+      parameters:
+        - name: tenant
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string }
+      responses:
+        "200":
+          description: Authentication successful
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TokenResponse" }
+        "401":
+          description: Invalid credentials
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "404":
+          description: Tenant not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "503":
+          description: Tenant is migrating or locked
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+
+  /{tenant}/auth/{connection}/authorize:
+    get:
+      operationId: oauthRedirect
+      summary: Begin OAuth2 flow — redirects to identity provider
+      tags: [auth]
+      parameters:
+        - name: tenant
+          in: path
+          required: true
+          schema: { type: string }
+        - name: connection
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "302":
+          description: Redirect to OAuth2 provider
+          headers:
+            Location:
+              schema: { type: string, format: uri }
+            Set-Cookie:
+              schema: { type: string }
+        "404":
+          description: Tenant or connection not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+
+  /{tenant}/auth/{connection}/callback:
+    get:
+      operationId: oauthCallback
+      summary: Complete OAuth2 flow — exchange code for token
+      tags: [auth]
+      parameters:
+        - name: tenant
+          in: path
+          required: true
+          schema: { type: string }
+        - name: connection
+          in: path
+          required: true
+          schema: { type: string }
+        - name: code
+          in: query
+          required: true
+          schema: { type: string }
+        - name: state
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: OAuth2 flow completed
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TokenResponse" }
+        "401":
+          description: Invalid or missing CSRF state
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+
+  /{tenant}/auth/saml/{connection}/acs:
+    post:
+      operationId: samlAcs
+      summary: SAML Assertion Consumer Service endpoint
+      tags: [auth]
+      parameters:
+        - name: tenant
+          in: path
+          required: true
+          schema: { type: string }
+        - name: connection
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [SAMLResponse]
+              properties:
+                SAMLResponse: { type: string }
+      responses:
+        "400":
+          description: SAML signature validation not yet implemented
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+
+  /mgmt/tenants:
+    post:
+      operationId: createTenant
+      summary: Create a new tenant
+      tags: [management]
+      security: [{ BearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, region]
+              properties:
+                name: { type: string }
+                region: { type: string }
+      responses:
+        "201":
+          description: Tenant created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Tenant" }
+        "401":
+          description: Missing or invalid management API key
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+
+    get:
+      operationId: listTenants
+      summary: List all tenants
+      tags: [management]
+      security: [{ BearerAuth: [] }]
+      responses:
+        "200":
+          description: List of tenants
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Tenant" }
+        "401":
+          description: Missing or invalid management API key
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+
+  /mgmt/tenants/{id}:
+    get:
+      operationId: getTenant
+      summary: Get a tenant by ID
+      tags: [management]
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Tenant found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Tenant" }
+        "401":
+          description: Missing or invalid management API key
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "404":
+          description: Tenant not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+
+    put:
+      operationId: updateTenant
+      summary: Update tenant name
+      tags: [management]
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string, nullable: true }
+      responses:
+        "200":
+          description: Tenant updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Tenant" }
+        "401":
+          description: Missing or invalid management API key
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "404":
+          description: Tenant not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+
+  /mgmt/tenants/{id}/migrate:
+    post:
+      operationId: migrateTenant
+      summary: Trigger geographic migration for a tenant
+      tags: [management]
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [target_region]
+              properties:
+                target_region: { type: string }
+      responses:
+        "204":
+          description: Migration complete
+        "401":
+          description: Missing or invalid management API key
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "404":
+          description: Tenant not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "400":
+          description: Unknown target region
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+
+  /mgmt/{tenant}/users:
+    get:
+      operationId: listUsers
+      summary: List all users for a tenant
+      tags: [management]
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - name: tenant
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: List of users
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/User" }
+        "401":
+          description: Missing or invalid management API key
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+
+    post:
+      operationId: createUser
+      summary: Create a user within a tenant
+      tags: [management]
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - name: tenant
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [connection_id, email]
+              properties:
+                connection_id: { type: string, format: uuid }
+                email: { type: string, format: email }
+                password: { type: string, nullable: true }
+                external_provider_id: { type: string, nullable: true }
+                organization_id: { type: string, format: uuid, nullable: true }
+      responses:
+        "201":
+          description: User created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "401":
+          description: Missing or invalid management API key
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "404":
+          description: Tenant not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+
+  /mgmt/{tenant}/users/{user_id}:
+    get:
+      operationId: getUser
+      summary: Get a user by ID
+      tags: [management]
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - name: tenant
+          in: path
+          required: true
+          schema: { type: string }
+        - name: user_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: User found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "401":
+          description: Missing or invalid management API key
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "404":
+          description: User not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+
+    delete:
+      operationId: deleteUser
+      summary: Delete a user
+      tags: [management]
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - name: tenant
+          in: path
+          required: true
+          schema: { type: string }
+        - name: user_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "204":
+          description: User deleted
+        "401":
+          description: Missing or invalid management API key
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "404":
+          description: User not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+
+  /mgmt/{tenant}/connections:
+    get:
+      operationId: listConnections
+      summary: List connections for a tenant
+      tags: [management]
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - name: tenant
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: List of connections
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/ConnectionSummary" }
+        "401":
+          description: Missing or invalid management API key
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+    post:
+      operationId: createConnection
+      summary: Create a connection for a tenant
+      tags: [management]
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - name: tenant
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, strategy, options]
+              properties:
+                name: { type: string }
+                strategy: { type: string, enum: [database, oauth2, saml, oidc] }
+                options:
+                  type: object
+                  description: |
+                    Strategy-specific configuration (plaintext; encrypted server-side).
+                    For strategy=oidc: include mode ("discover" or "custom"),
+                    issuer_url (required when mode=discover) or discovery_document (required when mode=custom),
+                    plus client_id, client_secret, redirect_uri in both cases.
+                webhook_url: { type: string, nullable: true }
+      responses:
+        "201":
+          description: Connection created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ConnectionSummary" }
+        "401":
+          description: Missing or invalid management API key
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+
+  /mgmt/{tenant}/connections/{conn_id}:
+    put:
+      operationId: updateConnection
+      summary: Update a connection
+      tags: [management]
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - name: tenant
+          in: path
+          required: true
+          schema: { type: string }
+        - name: conn_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string, nullable: true }
+                options: { type: object, nullable: true }
+                webhook_url: { nullable: true }
+      responses:
+        "200":
+          description: Connection updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ConnectionSummary" }
+        "401":
+          description: Missing or invalid management API key
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+    delete:
+      operationId: deleteConnection
+      summary: Delete a connection
+      tags: [management]
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - name: tenant
+          in: path
+          required: true
+          schema: { type: string }
+        - name: conn_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "204":
+          description: Connection deleted
+        "401":
+          description: Missing or invalid management API key
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+
+  /mgmt/{tenant}/organizations:
+    get:
+      operationId: listOrganizations
+      summary: List organizations for a tenant
+      tags: [management]
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - name: tenant
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: List of organizations
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Organization" }
+        "401":
+          description: Missing or invalid management API key
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+    post:
+      operationId: createOrganization
+      summary: Create an organization for a tenant
+      tags: [management]
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - name: tenant
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string }
+                display_name: { type: string, nullable: true }
+      responses:
+        "201":
+          description: Organization created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Organization" }
+        "401":
+          description: Missing or invalid management API key
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+
+  /mgmt/{tenant}/organizations/{org_id}:
+    delete:
+      operationId: deleteOrganization
+      summary: Delete an organization
+      tags: [management]
+      security: [{ BearerAuth: [] }]
+      parameters:
+        - name: tenant
+          in: path
+          required: true
+          schema: { type: string }
+        - name: org_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "204":
+          description: Organization deleted
+        "401":
+          description: Missing or invalid management API key
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }

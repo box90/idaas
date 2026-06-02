@@ -1,0 +1,23 @@
+[package]
+name    = "mod-token"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+shared-kernel = { path = "../shared-kernel" }
+tokio         = { workspace = true }
+sqlx          = { workspace = true }
+jsonwebtoken  = { workspace = true }
+reqwest       = { workspace = true }
+serde         = { workspace = true }
+serde_json    = { workspace = true }
+uuid          = { workspace = true }
+chrono        = { workspace = true }
+tracing       = { workspace = true }
+dashmap       = { workspace = true }
+
+[dev-dependencies]
+tokio    = { workspace = true }
+wiremock = "=0.6.2"
+rsa      = { version = "0.9", features = ["pem"] }
+rand     = "0.8"

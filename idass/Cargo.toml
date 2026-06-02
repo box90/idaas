@@ -1,0 +1,38 @@
+[workspace]
+members = [
+    "api-gateway",
+    "mod-auth",
+    "mod-token",
+    "mod-mgmt",
+    "shared-kernel",
+]
+resolver = "2"
+
+[workspace.dependencies]
+tokio        = { version = "1.36", features = ["full"] }
+axum         = { version = "0.7", features = ["macros"] }
+tower-http   = { version = "0.5", features = ["cors", "trace"] }
+sqlx         = { version = "0.7", features = ["runtime-tokio-native-tls", "postgres", "uuid", "chrono", "json"] }
+redis        = { version = "0.24", features = ["tokio-comp", "connection-manager"] }
+argon2       = "0.5"
+jsonwebtoken = "9.2"
+serde        = { version = "1.0", features = ["derive"] }
+serde_json   = "1.0"
+uuid         = { version = "1.7", features = ["v4", "serde"] }
+chrono       = { version = "0.4", features = ["serde"] }
+thiserror    = "1.0"
+tracing      = "0.1"
+reqwest      = { version = "0.11", features = ["json"] }
+aes-gcm      = "0.10"
+base64       = "0.21"
+dashmap      = "5.5"
+rand_core    = "0.6"
+
+[profile.dev]
+opt-level = 0
+debug     = true
+
+[profile.release]
+opt-level     = 3
+lto           = "thin"
+codegen-units = 1

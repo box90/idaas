@@ -1,0 +1,45 @@
+[package]
+name    = "api-gateway"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "idass"
+path = "src/main.rs"
+
+[lib]
+name = "api_gateway"
+path = "src/lib.rs"
+
+[dependencies]
+shared-kernel      = { path = "../shared-kernel" }
+mod-auth           = { path = "../mod-auth" }
+mod-token          = { path = "../mod-token" }
+mod-mgmt           = { path = "../mod-mgmt" }
+tokio              = { workspace = true }
+axum               = { workspace = true }
+tower-http         = { workspace = true }
+sqlx               = { workspace = true }
+redis              = { workspace = true }
+serde              = { workspace = true }
+serde_json         = { workspace = true }
+uuid               = { workspace = true }
+chrono             = { workspace = true }
+tracing            = { workspace = true }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+dotenvy            = "0.15"
+urlencoding        = "2.1"
+subtle             = "2.5"
+async-trait        = "0.1"
+dashmap            = { workspace = true }
+mockall            = "0.13"
+
+[dev-dependencies]
+rsa          = { version = "0.9", features = ["pem"] }
+rand         = "0.8"
+jsonwebtoken = { workspace = true }
+tokio        = { workspace = true }
+openapiv3   = "2.0"
+jsonschema  = "0.18"
+serde_yaml  = "0.9"
+tower       = { version = "0.4", features = ["util"] }

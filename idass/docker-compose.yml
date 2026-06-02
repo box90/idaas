@@ -1,0 +1,71 @@
+version: "3.9"
+services:
+  postgres-eu:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: idass
+      POSTGRES_PASSWORD: idass
+      POSTGRES_DB: idass_eu_west_1
+    ports: ["5432:5432"]
+    volumes: ["pgdata-eu:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U idass"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  postgres-us:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: idass
+      POSTGRES_PASSWORD: idass
+      POSTGRES_DB: idass_us_east_1
+    ports: ["5433:5432"]
+    volumes: ["pgdata-us:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U idass"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  api-gateway:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      REGIONS:                  eu-west-1,us-east-1
+      DATABASE_URL:             postgres://idass:idass@postgres-eu:5432/idass_eu_west_1
+      DATABASE_URL_EU_WEST_1:   postgres://idass:idass@postgres-eu:5432/idass_eu_west_1
+      DATABASE_URL_US_EAST_1:   postgres://idass:idass@postgres-us:5432/idass_us_east_1
+      REDIS_URL:                redis://redis:6379
+      RUST_LOG:                 info,sqlx=warn
+    env_file:
+      - path: .env
+        required: false          # .env is optional; CI/prod injects secrets via environment
+    depends_on:
+      postgres-eu:
+        condition: service_healthy
+      postgres-us:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 8080 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 15s
+
+volumes:
+  pgdata-eu:
+  pgdata-us:
